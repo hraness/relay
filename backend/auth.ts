@@ -160,6 +160,24 @@ async function sendOtpEmail(config: RelayConfig, input: Readonly<{ email: string
 
 type InternalCtx = RelayMutationCtx;
 
+/** The bootstrap capability admits exactly once: it must match the env token,
+ * and it dies the moment any subject holds a verified user. Subjects are
+ * few enough that the existence check is a bounded collect. */
+async function bootstrapInviteAdmitted(
+  ctx: InternalCtx,
+  config: RelayConfig,
+  capabilityDigest: string,
+): Promise<boolean> {
+  const env = config.bootstrapInviteEnv;
+  if (env === undefined) return false;
+  const token = process.env[env];
+  if (token === undefined || token.length < 16 || token.length > 256) return false;
+  const expected = await digestInviteCapability(config.namespace, token);
+  if (expected !== capabilityDigest) return false;
+  const subjects = await ctx.db.query<AuthSubjectRow>("relaySubjects").take(257);
+  return subjects.every((subject) => subject.userId === undefined || subject.verifiedAt === undefined);
+}
+
 async function subjectByEmail(ctx: InternalCtx, emailDigest: string): Promise<Row<AuthSubjectRow> | null> {
   const matches = await ctx.db
     .query<AuthSubjectRow>("relaySubjects")
@@ -239,15 +257,26 @@ export function relayAuthInternal(config: RelayConfig) {
           .withIndex("by_capability_digest", (q) => q.eq("capabilityDigest", args.inviteCapabilityDigest!))
           .take(2);
         const invite = invites[0];
-        if (
-          invites.length !== 1
-          || invite === undefined
-          || invite.purpose !== "identity"
-          || invite.state !== "issued"
-          || invite.revokedAt !== undefined
-          || invite.expiresAt <= now
-        ) rejectAuth();
-        if (invite.boundEmailDigest !== undefined && invite.boundEmailDigest !== args.emailDigest) rejectAuth();
+        if (invites.length === 1 && invite !== undefined) {
+          if (
+            invite.purpose !== "identity"
+            || invite.state !== "issued"
+            || invite.revokedAt !== undefined
+            || invite.expiresAt <= now
+          ) rejectAuth();
+          if (invite.boundEmailDigest !== undefined && invite.boundEmailDigest !== args.emailDigest) rejectAuth();
+          // The capability is one-shot: it binds to this email and dies at
+          // the first send. A never-completed OTP leaves the subject marked
+          // invite-admitted so resends still work.
+          await ctx.db.patch(invite._id, {
+            boundEmailDigest: args.emailDigest,
+            consumedAt: now,
+            state: "consumed",
+            updatedAt: now,
+          });
+        } else if (!(await bootstrapInviteAdmitted(ctx, config, args.inviteCapabilityDigest!))) {
+          rejectAuth();
+        }
         if (subject === null) {
           const subjectId = await ctx.db.insert("relaySubjects", {
             admittedWithInvite: true,
@@ -262,15 +291,6 @@ export function relayAuthInternal(config: RelayConfig) {
         } else if (subject.admittedWithInvite !== true) {
           await ctx.db.patch(subject._id, { admittedWithInvite: true, updatedAt: now });
         }
-        // The capability is one-shot: it binds to this email and dies at
-        // the first send. A never-completed OTP leaves the subject marked
-        // invite-admitted so resends still work.
-        await ctx.db.patch(invite._id, {
-          boundEmailDigest: args.emailDigest,
-          consumedAt: now,
-          state: "consumed",
-          updatedAt: now,
-        });
         inviteBinding = "bound";
       }
       if (subject?.status !== "active") rejectAuth();

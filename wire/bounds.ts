@@ -118,6 +118,12 @@ export type RelayConfig = Readonly<{
   /** Whether a never-seen email may self-admit by OTP. When false, first
    * admission requires an identity invite issued by an active subject. */
   openSignup: boolean;
+  /** Names the environment variable holding a one-shot bootstrap invite
+   * token: while no subject has ever verified, a request may present
+   * `digestInviteCapability(namespace, token)` and be admitted as if it
+   * held an issued identity invite. Once the first subject verifies, the
+   * token is dead. Never set on a deployment that leaves open sign-up on. */
+  bootstrapInviteEnv?: string;
   /** Convex Auth credentials provider id — pinned per product. */
   authProviderId: string;
   bounds?: Partial<RelayBounds>;
@@ -158,6 +164,14 @@ export function checkRelayConfig(config: RelayConfig): RelayConfig {
   }
   if (!isWireKind(config.authProviderId) && !/^[-a-z0-9_]{1,64}$/u.test(config.authProviderId)) {
     throw new Error("relay config: invalid authProviderId");
+  }
+  if (config.bootstrapInviteEnv !== undefined) {
+    if (!/^[A-Z][A-Z0-9_]{0,63}$/u.test(config.bootstrapInviteEnv)) {
+      throw new Error("relay config: invalid env name for bootstrapInviteEnv");
+    }
+    if (config.openSignup) {
+      throw new Error("relay config: bootstrapInviteEnv is meaningless with open sign-up");
+    }
   }
   const email = config.email;
   if (email.mode === "webhook") {

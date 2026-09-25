@@ -6,6 +6,7 @@ export const modules = {
   "./relayDevices.ts": async () => await import("./relayDevices"),
   "./relayEnvelopes.ts": async () => await import("./relayEnvelopes"),
   "./relayInternal.ts": async () => await import("./relayInternal"),
+  "./relayInternalClosed.ts": async () => await import("./relayInternalClosed"),
   "./relayInvites.ts": async () => await import("./relayInvites"),
   "./relayMaintenance.ts": async () => await import("./relayMaintenance"),
   "./relayProjections.ts": async () => await import("./relayProjections"),
