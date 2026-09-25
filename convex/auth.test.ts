@@ -115,6 +115,85 @@ describe("otp internals", () => {
     })).rejects.toThrow();
   });
 
+  test("closed sign-up admits the bootstrap token once, then never again", async () => {
+    const closed = makeFunctionReference<"mutation", Record<string, unknown>, { authEpoch: number; inviteBinding: string }>("relayInternalClosed:reserveEmailAttempt");
+    const t = convexTest(schema, modules);
+    process.env.RELAY_TEST_BOOTSTRAP_TOKEN = "bootstrap-secret-token-0001";
+    try {
+      const digest = await emailDigest("founder@example.test");
+      const capability = await digestInviteCapability("relay.dev.v1", "bootstrap-secret-token-0001");
+
+      // Without the capability, a fresh email is refused outright.
+      const stranger = await emailDigest("stranger@example.test");
+      await expect(t.mutation(closed, { emailDigest: stranger, kind: "send" })).rejects.toThrow();
+
+      // With it, the founder is admitted as invite-bound.
+      const admitted = await t.mutation(closed, {
+        emailDigest: digest,
+        inviteCapabilityDigest: capability,
+        kind: "send",
+      });
+      expect(admitted.inviteBinding).toBe("bound");
+
+      // Resend works for the admitted-but-unverified subject.
+      const resend = await t.mutation(closed, {
+        emailDigest: digest,
+        inviteCapabilityDigest: capability,
+        kind: "send",
+      });
+      expect(resend.inviteBinding).toBe("bound");
+    } finally {
+      delete process.env.RELAY_TEST_BOOTSTRAP_TOKEN;
+    }
+  });
+
+  test("the bootstrap token dies once a subject has verified", async () => {
+    const closed = makeFunctionReference<"mutation", Record<string, unknown>, { authEpoch: number; inviteBinding: string }>("relayInternalClosed:reserveEmailAttempt");
+    const storeClosed = makeFunctionReference<"mutation", Record<string, unknown>, string>("relayInternalClosed:storeOtpChallenge");
+    const consumeClosed = makeFunctionReference<"mutation", Record<string, unknown>, string>("relayInternalClosed:consumeOtpChallenge");
+    const t = convexTest(schema, modules);
+    process.env.RELAY_TEST_BOOTSTRAP_TOKEN = "bootstrap-secret-token-0002";
+    try {
+      const email = "founder@example.test";
+      const digest = await emailDigest(email);
+      const capability = await digestInviteCapability("relay.dev.v1", "bootstrap-secret-token-0002");
+      await t.mutation(closed, { emailDigest: digest, inviteCapabilityDigest: capability, kind: "send" });
+
+      // Complete verification through the challenge path.
+      const { accountId, userId } = await t.run(async (ctx) => {
+        const userId = await ctx.db.insert("users", { email, emailVerificationTime: undefined });
+        const accountId = await ctx.db.insert("authAccounts", {
+          provider: "relay-dev-otp-v1",
+          providerAccountId: email,
+          secret: undefined,
+          userId,
+        } as never);
+        return { accountId, userId };
+      });
+      const code = "12345678";
+      const codeDigest = await digestAuthOtp("relay.dev.v1", email, code);
+      await t.mutation(storeClosed, {
+        accountId,
+        authEpoch: 1,
+        codeDigest,
+        emailDigest: digest,
+        expiresAt: Date.now() + 10 * 60 * 1_000,
+        userId,
+      });
+      await t.mutation(consumeClosed, { authEpoch: 1, codeDigest, emailDigest: digest });
+
+      // A second email holding the same token is now refused.
+      const late = await emailDigest("late@example.test");
+      await expect(t.mutation(closed, {
+        emailDigest: late,
+        inviteCapabilityDigest: capability,
+        kind: "send",
+      })).rejects.toThrow();
+    } finally {
+      delete process.env.RELAY_TEST_BOOTSTRAP_TOKEN;
+    }
+  });
+
   test("send attempts rate-limit per address", async () => {
     const world = await relayWorld();
     const digest = await emailDigest("spam@example.test");
