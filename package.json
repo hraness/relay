@@ -1,0 +1,37 @@
+{
+  "name": "@hraness/relay",
+  "version": "0.1.0",
+  "description": "Shared Convex relay foundation: verified-email device enrollment, fenced command lifecycle, and end-to-end encrypted projections for Hraness products.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "type": "module",
+  "exports": {
+    "./wire": "./wire/index.ts",
+    "./crypto": "./crypto/index.ts",
+    "./backend": "./backend/index.ts",
+    "./client": "./client-ts/index.ts"
+  },
+  "scripts": {
+    "check": "bun run typecheck && bun run test",
+    "convex:init": "bun scripts/convex-local.ts init",
+    "convex:dev": "bun scripts/convex-local.ts dev --tail-logs disable",
+    "convex:codegen": "bun scripts/convex-local.ts dev --once --tail-logs disable",
+    "test": "bun test --timeout 30000",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "convex": ">=1.44.0"
+  },
+  "dependencies": {
+    "@convex-dev/auth": "0.0.95"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "convex": "1.45.0",
+    "convex-test": "0.0.59",
+    "typescript": "^5.6.0"
+  }
+}
