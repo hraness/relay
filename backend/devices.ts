@@ -193,11 +193,16 @@ export function relayDevicesBackend(config: RelayConfig) {
         .take(bounds.devicesPerUser + 1);
       const online = new Set(presence.filter((row) => row.presenceUntil > now).map((row) => row.deviceId));
       return devices.map((device) => ({
+        // Peers need both public keys: the signing key verifies every signed
+        // envelope the device posts, and the agreement key is the ECDH peer
+        // for key wraps.
+        agreementPublicKey: device.agreementPublicKey,
         deviceClass: device.deviceClass,
         deviceId: device.deviceId,
         keyVersion: device.keyVersion,
         label: device.label,
         online: online.has(device._id),
+        signingPublicKey: device.signingPublicKey,
         status: device.status,
       }));
     },

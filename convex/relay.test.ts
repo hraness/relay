@@ -65,12 +65,19 @@ async function enqueueOne(controller: DeviceHandle, daemon: DeviceHandle, seed =
 describe("device registry", () => {
   test("enrolls daemon and controller devices through the bind ceremony", async () => {
     const { world: _world, daemon, controller } = await twoDeviceWorld();
-    const list = await controller.runtime.query(listDevices, {}) as { deviceId: string; deviceClass: string; status: string; online: boolean }[];
+    const list = await controller.runtime.query(listDevices, {}) as {
+      agreementPublicKey: string; deviceId: string; deviceClass: string;
+      signingPublicKey: string; status: string; online: boolean;
+    }[];
     const daemonRow = list.find((row) => row.deviceId === daemon.deviceId);
     const controllerRow = list.find((row) => row.deviceId === controller.deviceId);
     expect(daemonRow?.status).toBe("active");
     expect(controllerRow?.status).toBe("active");
     expect(daemonRow?.deviceClass).toBe("daemon");
+    // Peers must see each other's public keys to verify signed envelopes and
+    // open key wraps.
+    expect(daemonRow?.signingPublicKey).toBe(daemon.device.publicKeys.signing);
+    expect(daemonRow?.agreementPublicKey).toBe(daemon.device.publicKeys.agreement);
   });
 
   test("rejects a device id that does not match its signing key", async () => {

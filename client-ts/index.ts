@@ -70,11 +70,13 @@ const COMMAND_STATES: ReadonlySet<string> = new Set([
 ]);
 
 export interface DeviceRow {
+  agreementPublicKey: string;
   deviceClass: string;
   deviceId: string;
+  keyVersion: number;
   label: string;
   online: boolean;
-  publicId: string;
+  signingPublicKey: string;
   status: string;
 }
 
@@ -113,7 +115,9 @@ function parseDeviceRow(row: unknown): DeviceRow {
   if (typeof row !== "object" || row === null) throw new RelayClientError("malformed-envelope", "device row is not an object");
   const record = row as Record<string, unknown>;
   if (!isDeviceId(record.deviceId) || typeof record.deviceClass !== "string" || typeof record.status !== "string"
-    || typeof record.label !== "string" || typeof record.online !== "boolean" || typeof record.publicId !== "string") {
+    || typeof record.label !== "string" || typeof record.online !== "boolean"
+    || typeof record.signingPublicKey !== "string" || typeof record.agreementPublicKey !== "string"
+    || !Number.isSafeInteger(record.keyVersion) || (record.keyVersion as number) < 1) {
     throw new RelayClientError("malformed-envelope", "device row failed validation");
   }
   return row as DeviceRow;
