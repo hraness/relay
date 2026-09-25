@@ -1,10 +1,12 @@
 # Contents
 
-- `convex/` contains the backend factories each product instantiates with
+- `backend/` contains the backend factories each product instantiates with
   its own wire namespace and bounds: verified-email auth subjects and OTP
   challenges, the device registry, capability-bound enrollment invites,
   the device-command lifecycle reducer, the envelope store, rate buckets,
   and retention crons.
+- `convex/` contains the relay's own dev instantiation and the
+  `convex-test` harness that exercises the factories end to end.
 - `wire/` contains the versioned contract specification and validators:
   envelope shapes, authority tuples (user + device + auth epoch + boot
   generation), idempotency keys, and every bound. Non-TypeScript clients
