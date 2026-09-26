@@ -247,6 +247,7 @@ export function relaySchema() {
       userId: v.id("users"),
     })
       .index("by_device", ["deviceId"])
+      .index("by_device_and_connection", ["deviceId", "connectionId"])
       .index("by_presence_until", ["presenceUntil"])
       .index("by_user", ["userId"]),
 
