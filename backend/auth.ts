@@ -136,6 +136,39 @@ async function sendOtpEmail(config: RelayConfig, input: Readonly<{ email: string
       clearTimeout(timeout);
     }
   }
+  if (transport.mode === "sendgrid") {
+    const key = process.env[transport.keyEnv];
+    const from = process.env[transport.fromEnv];
+    if (key === undefined || from === undefined) throw new Error("Email delivery is unavailable.");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    try {
+      // SendGrid has no idempotency header; the challenge digest already
+      // bounds sends to one per issued OTP.
+      const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email: input.email }] }],
+          from: { email: from },
+          subject: "Your sign-in code",
+          content: [
+            {
+              type: "text/plain",
+              value: `Your sign-in code is ${input.code}.\n\nIt expires in 10 minutes. If you did not request it, you can ignore this email.`,
+            },
+          ],
+        }),
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        method: "POST",
+        redirect: "error",
+        signal: controller.signal,
+      });
+      await response.body?.cancel().catch(() => undefined);
+      if (!response.ok) throw new Error("Email delivery is unavailable.");
+      return;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
   const url = process.env[transport.urlEnv];
   const token = process.env[transport.tokenEnv];
   if (url === undefined || token === undefined) throw new Error("Email delivery is unavailable.");
