@@ -217,12 +217,22 @@ export function relayDevicesBackend(config: RelayConfig) {
       check(args.connectionId.length >= 8 && args.connectionId.length <= 128, "connectionId");
       check(args.fingerprint.length >= 8 && args.fingerprint.length <= 128, "fingerprint");
       const now = Date.now();
-      const rows = await ctx.db
+      // Sweep this device's expired rows first: a flapping or churning
+      // device would otherwise accumulate dead presence between the
+      // hourly retention sweeps.
+      const stale = await ctx.db
         .query<PresenceRow>("relayPresence")
-        .withIndex("by_device", (q) => q.eq("deviceId", authority.deviceId))
-        .take(4);
-      const existing = rows.find((row) => row.connectionId === args.connectionId);
-      if (existing !== undefined) {
+        .withIndex("by_presence_until", (q) => q.lte("presenceUntil", now))
+        .take(DRAIN_LIMIT);
+      for (const row of stale) {
+        if (row.deviceId === authority.deviceId) await ctx.db.delete(row._id);
+      }
+      const existing = await ctx.db
+        .query<PresenceRow>("relayPresence")
+        .withIndex("by_device_and_connection", (q) =>
+          q.eq("deviceId", authority.deviceId).eq("connectionId", args.connectionId))
+        .unique();
+      if (existing !== null) {
         await ctx.db.patch(existing._id, {
           authEpoch: authority.subject.authEpoch,
           fingerprint: args.fingerprint,
@@ -252,12 +262,12 @@ export function relayDevicesBackend(config: RelayConfig) {
       const authority = await requireDevice(ctx);
       check(args.deviceId === authority.device.deviceId, "deviceId");
       const now = Date.now();
-      const rows = await ctx.db
+      const presence = await ctx.db
         .query<PresenceRow>("relayPresence")
-        .withIndex("by_device", (q) => q.eq("deviceId", authority.deviceId))
-        .take(4);
-      const presence = rows.find((row) => row.connectionId === args.connectionId);
-      if (presence === undefined || presence.presenceUntil <= now) rejectDevice();
+        .withIndex("by_device_and_connection", (q) =>
+          q.eq("deviceId", authority.deviceId).eq("connectionId", args.connectionId))
+        .unique();
+      if (presence === null || presence.presenceUntil <= now) rejectDevice();
       await ctx.db.patch(presence._id, {
         connectionSequence: presence.connectionSequence + 1,
         observedAt: now,
@@ -273,13 +283,12 @@ export function relayDevicesBackend(config: RelayConfig) {
       const ctx = relayMutationCtx(rawCtx);
       const authority = await requireDevice(ctx);
       check(args.deviceId === authority.device.deviceId, "deviceId");
-      const rows = await ctx.db
+      const row = await ctx.db
         .query<PresenceRow>("relayPresence")
-        .withIndex("by_device", (q) => q.eq("deviceId", authority.deviceId))
-        .take(8);
-      for (const row of rows) {
-        if (row.connectionId === args.connectionId) await ctx.db.delete(row._id);
-      }
+        .withIndex("by_device_and_connection", (q) =>
+          q.eq("deviceId", authority.deviceId).eq("connectionId", args.connectionId))
+        .unique();
+      if (row !== null) await ctx.db.delete(row._id);
       return null;
     },
   });

@@ -117,6 +117,51 @@ describe("device registry", () => {
       deviceId: daemon.deviceId,
     })).rejects.toThrow();
   });
+
+  test("presence lookups survive accumulated stale rows", async () => {
+    const { world, daemon } = await twoDeviceWorld();
+    // A flapping daemon leaves one expired row per boot; the hourly sweep
+    // is far too slow to be the only bound, so lookups must key on
+    // connectionId exactly and connect must sweep expired rows.
+    await world.t.run(async (ctx) => {
+      const device = await ctx.db
+        .query("relayDevices")
+        .withIndex("by_user_and_device_id", (q) =>
+          q.eq("userId", daemon.userId).eq("deviceId", daemon.deviceId))
+        .unique();
+      if (device === null) throw new Error("device missing");
+      for (let index = 0; index < 6; index++) {
+        await ctx.db.insert("relayPresence", {
+          authEpoch: 1,
+          connectionId: `stale-0000${index}00`,
+          connectionSequence: 1,
+          deviceId: device._id,
+          fingerprint: "stale-fingerprint",
+          observedAt: 0,
+          presenceUntil: 0,
+          userId: daemon.userId,
+        });
+      }
+    });
+    const connected = await daemon.runtime.mutation(connect, {
+      connectionId: "conn-live-0001",
+      deviceId: daemon.deviceId,
+      fingerprint: "fp-live-0001",
+    }) as { presenceUntil: number };
+    const heartbeatResult = await daemon.runtime.mutation(heartbeat, {
+      connectionId: "conn-live-0001",
+      deviceId: daemon.deviceId,
+    }) as { presenceUntil: number };
+    expect(heartbeatResult.presenceUntil).toBeGreaterThanOrEqual(connected.presenceUntil);
+    await daemon.runtime.mutation(disconnect, {
+      connectionId: "conn-live-0001",
+      deviceId: daemon.deviceId,
+    });
+    await expect(daemon.runtime.mutation(heartbeat, {
+      connectionId: "conn-live-0001",
+      deviceId: daemon.deviceId,
+    })).rejects.toThrow();
+  });
 });
 
 describe("command lifecycle", () => {
