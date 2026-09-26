@@ -95,13 +95,15 @@ export const OTP_ATTEMPT_POLICY = Object.freeze({
 /** How the deployment delivers OTP codes. `log` writes the code to the
  * backend log and is the only mode an anonymous local backend supports;
  * `webhook` POSTs `{to, code, expiresAt}` with a bearer token; `resend`
- * calls the Resend email API. Non-log modes read their endpoint and
- * secrets from environment variables named here — the values never appear
- * in configuration or code. */
+ * calls the Resend email API; `sendgrid` calls the SendGrid v3 mail-send
+ * API. Non-log modes read their endpoint and secrets from environment
+ * variables named here — the values never appear in configuration or
+ * code. */
 export type EmailTransport =
   | Readonly<{ mode: "log" }>
   | Readonly<{ mode: "webhook"; urlEnv: string; tokenEnv: string }>
-  | Readonly<{ mode: "resend"; keyEnv: string; fromEnv: string }>;
+  | Readonly<{ mode: "resend"; keyEnv: string; fromEnv: string }>
+  | Readonly<{ mode: "sendgrid"; keyEnv: string; fromEnv: string }>;
 
 export type RelayConfig = Readonly<{
   /** Wire namespace stamping envelope contracts, e.g. `xcb.relay.v1`. */
@@ -179,7 +181,7 @@ export function checkRelayConfig(config: RelayConfig): RelayConfig {
       if (!/^[A-Z][A-Z0-9_]{0,63}$/u.test(name)) throw new Error(`relay config: invalid env name ${name}`);
     }
   }
-  if (email.mode === "resend") {
+  if (email.mode === "resend" || email.mode === "sendgrid") {
     for (const name of [email.keyEnv, email.fromEnv]) {
       if (!/^[A-Z][A-Z0-9_]{0,63}$/u.test(name)) throw new Error(`relay config: invalid env name ${name}`);
     }
