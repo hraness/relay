@@ -1,5 +1,6 @@
 export const modules = {
   "./_generated/server.ts": async () => await import("./server"),
+  "./auth.ts": async () => await import("./resendTestAuth"),
   "./relay.ts": async () => await import("./relay"),
   "./relayAuth.ts": async () => await import("./relayAuth"),
   "./relayCommands.ts": async () => await import("./relayCommands"),

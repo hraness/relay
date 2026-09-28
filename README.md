@@ -41,6 +41,7 @@ export const relay = defineRelay({
   email: { mode: "log" },
   openSignup: false,
   authProviderId: "xcb-otp-v1",
+  productName: "xcb",
 });
 ```
 

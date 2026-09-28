@@ -101,6 +101,32 @@ export function parseAuthCredentials(credentials: Credentials): ParsedCredential
 
 // Email transport ------------------------------------------------------------------
 
+/** The one auth failure a client may learn about: the code could not be
+ * sent, so waiting for email is useless and retrying is the only answer.
+ * It survives the flat anti-enumeration refusal around `authorize`. */
+class OtpDeliveryError extends Error {
+  constructor() {
+    super("Email delivery is unavailable.");
+    this.name = "OtpDeliveryError";
+  }
+}
+
+/** The product-branded sign-in email, matching the Accounts format:
+ * `{code} is your {product} sign-in code` with a plain-text body. */
+export function buildOtpEmail(
+  productName: string,
+  input: Readonly<{ code: string }>,
+): Readonly<{ subject: string; text: string }> {
+  return {
+    subject: `${input.code} is your ${productName} sign-in code`,
+    text: [
+      `Your ${productName} sign-in code is ${input.code}.`,
+      "",
+      "It expires in 10 minutes. If you did not request it, you can ignore this email.",
+    ].join("\n"),
+  };
+}
+
 async function sendOtpEmail(config: RelayConfig, input: Readonly<{ email: string; code: string; expiresAt: number }>): Promise<void> {
   const transport = config.email;
   if (transport.mode === "log") {
@@ -114,11 +140,12 @@ async function sendOtpEmail(config: RelayConfig, input: Readonly<{ email: string
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8_000);
     try {
+      const { subject, text } = buildOtpEmail(config.productName, input);
       const response = await fetch("https://api.resend.com/emails", {
         body: JSON.stringify({
           from,
-          subject: "Your sign-in code",
-          text: `Your sign-in code is ${input.code}.\n\nIt expires in 10 minutes. If you did not request it, you can ignore this email.`,
+          subject,
+          text,
           to: [input.email],
         }),
         headers: {
@@ -126,39 +153,6 @@ async function sendOtpEmail(config: RelayConfig, input: Readonly<{ email: string
           "Content-Type": "application/json",
           "Idempotency-Key": await sha256Hex(`${config.namespace}:otp-send|${input.email}|${input.code}|${String(input.expiresAt)}`),
         },
-        method: "POST",
-        redirect: "error",
-        signal: controller.signal,
-      });
-      await response.body?.cancel().catch(() => undefined);
-      if (!response.ok) throw new Error("Email delivery is unavailable.");
-      return;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  if (transport.mode === "sendgrid") {
-    const key = process.env[transport.keyEnv];
-    const from = process.env[transport.fromEnv];
-    if (key === undefined || from === undefined) throw new Error("Email delivery is unavailable.");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8_000);
-    try {
-      // SendGrid has no idempotency header; the challenge digest already
-      // bounds sends to one per issued OTP.
-      const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
-        body: JSON.stringify({
-          personalizations: [{ to: [{ email: input.email }] }],
-          from: { email: from },
-          subject: "Your sign-in code",
-          content: [
-            {
-              type: "text/plain",
-              value: `Your sign-in code is ${input.code}.\n\nIt expires in 10 minutes. If you did not request it, you can ignore this email.`,
-            },
-          ],
-        }),
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         method: "POST",
         redirect: "error",
         signal: controller.signal,
@@ -533,9 +527,13 @@ export function relayAuth(config: RelayConfig, paths: RelayAuthPaths = { interna
           await ctx.runMutation(ref("recordOtpDelivery"), { challengeId, state: "accepted" });
         } catch {
           await ctx.runMutation(ref("recordOtpDelivery"), { challengeId, state: "ambiguous" });
+          // A swallowed delivery failure leaves the client claiming a code
+          // was emailed forever. This one error escapes the flat refusal.
+          throw new OtpDeliveryError();
         }
         return null;
-      } catch {
+      } catch (error) {
+        if (error instanceof OtpDeliveryError) throw error;
         return null;
       }
     },
