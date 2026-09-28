@@ -57,6 +57,8 @@ The product then re-exports the pieces Convex must register:
 - `convex/crons.ts` — schedule `relayMaintenance:sweep`.
 
 This repository's own `convex/` directory is the reference instantiation.
+See [device reauthentication](docs/device-reauth.md) for the additive protocol
+that restores an active device's session while preserving its keys and work.
 
 ## Developing
 

@@ -106,6 +106,7 @@ export type OtpChallengeRow = Readonly<{
 export type DeviceRow = Readonly<{
   agreementPublicKey: string;
   authEpoch: number;
+  bindingRevision?: number;
   createdAt: number;
   deviceClass: string;
   deviceId: string;
@@ -123,12 +124,26 @@ export type DeviceSessionRow = Readonly<{
   authEpoch: number;
   authSessionId: RowId;
   boundAt: number;
+  bindingRevision?: number;
+  reauthChallengeId?: string;
+  reauthProofDigest?: string;
+  reauthKeyVersion?: number;
+  reauthDeviceClass?: string;
+  reauthSigningPublicKey?: string;
+  reauthAgreementPublicKey?: string;
   deviceId: RowId;
   revokedAt?: number;
   userId: RowId;
 }>;
 
 export type BindChallengeRow = Readonly<{
+  purpose?: "bind" | "reauth";
+  bindingRevision?: number;
+  authEpoch?: number;
+  keyVersion?: number;
+  deviceClass?: string;
+  signingPublicKey?: string;
+  agreementPublicKey?: string;
   authSessionId: RowId;
   challengeId: string;
   consumedAt?: number;

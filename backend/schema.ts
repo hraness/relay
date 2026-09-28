@@ -129,6 +129,7 @@ export function relaySchema() {
      * is derived from the signing key, so a row can never be renamed onto a
      * different key. Revoked rows stay so a revoked id cannot return. */
     relayDevices: defineTable({
+      bindingRevision: v.optional(v.number()),
       agreementPublicKey: v.string(),
       authEpoch: v.number(),
       createdAt: v.number(),
@@ -147,8 +148,17 @@ export function relaySchema() {
       .index("by_user_and_device_id", ["userId", "deviceId"])
       .index("by_user_and_status", ["userId", "status"]),
 
-    /** Binds a Convex Auth session to exactly one device. */
+    /** Binds a Convex Auth session to exactly one device. Reauthentication
+     * replaces this row and retains only its latest committed proof receipt;
+     * optional receipt fields preserve legacy enrollment mappings. */
     relayDeviceSessions: defineTable({
+      bindingRevision: v.optional(v.number()),
+      reauthChallengeId: v.optional(v.string()),
+      reauthProofDigest: v.optional(v.string()),
+      reauthKeyVersion: v.optional(v.number()),
+      reauthDeviceClass: v.optional(v.string()),
+      reauthSigningPublicKey: v.optional(v.string()),
+      reauthAgreementPublicKey: v.optional(v.string()),
       authEpoch: v.number(),
       authSessionId: v.id("authSessions"),
       boundAt: v.number(),
@@ -160,9 +170,17 @@ export function relaySchema() {
       .index("by_device", ["deviceId"])
       .index("by_user", ["userId"]),
 
-    /** Signed bind challenges prove the enrolling session controls the
-     * device's private signing key before activation. */
+    /** Expiring device-key challenges. Missing purpose means legacy bind;
+     * reauth challenges snapshot active-device metadata and binding revision.
+     * Both purposes share expiry, user deletion, and revocation lifecycle. */
     relayBindChallenges: defineTable({
+      purpose: v.optional(v.union(v.literal("bind"), v.literal("reauth"))),
+      bindingRevision: v.optional(v.number()),
+      authEpoch: v.optional(v.number()),
+      keyVersion: v.optional(v.number()),
+      deviceClass: v.optional(v.string()),
+      signingPublicKey: v.optional(v.string()),
+      agreementPublicKey: v.optional(v.string()),
       authSessionId: v.id("authSessions"),
       challengeId: v.string(),
       consumedAt: v.optional(v.number()),

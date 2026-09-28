@@ -8,3 +8,7 @@ export const connect = relay.devices.connect;
 export const heartbeat = relay.devices.heartbeat;
 export const disconnect = relay.devices.disconnect;
 export const revoke = relay.devices.revoke;
+
+export const beginReauth = relay.devices.beginReauth;
+export const finishReauth = relay.devices.finishReauth;
+export const reauthStatus = relay.devices.reauthStatus;

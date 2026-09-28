@@ -4,3 +4,4 @@ export * from "./authority";
 export * from "./envelope";
 export * from "./bounds";
 export * from "./errors";
+export * from "./reauth";

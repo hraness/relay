@@ -43,6 +43,21 @@ const accountKey = await generateAccountKey();
 const message = { challengeId: "vec", contract: "relay.dev.v1:device-bind", nonce: "AA" };
 const signature = await signCanonical(sender.identity.signing.privateKey, message);
 
+const reauthMessage = {
+  authEpoch: 1,
+  authSessionId: "session_fixture_00000000000000001",
+  bindingRevision: 0,
+  challengeId: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB",
+  contract: "relay.dev.v1:device-reauth",
+  deviceClass: "daemon",
+  deviceId: sender.identity.device,
+  expiresAt: 1790546700000,
+  keyVersion: 1,
+  nonce: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+  userId: "user_fixture_00000000000000000001",
+};
+const reauthSignature = await signCanonical(sender.identity.signing.privateKey, reauthMessage);
+
 const plaintext = utf8Encode("bounded projection ciphertext across languages");
 const envelope = await sealEnvelope({
   sender: sender.identity,
@@ -67,6 +82,11 @@ console.log(JSON.stringify({
   keyWrap: wrap,
   message,
   plaintext: encodeBase64Url(plaintext),
+  reauth: {
+    message: reauthMessage,
+    canonical: canonicalize(reauthMessage),
+    signature: encodeBase64Url(reauthSignature),
+  },
   receiver: {
     agreementScalar: receiver.agreementScalar,
     device: receiver.identity.device,

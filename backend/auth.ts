@@ -20,6 +20,7 @@ import { OTP_ATTEMPT_POLICY, resolveRelayBounds, type RelayConfig } from "../wir
 
 import type { AuthAttemptRow, AuthSubjectRow, InviteRow, OtpChallengeRow, Row, RowId } from "./db";
 import { relayCtx, relayMutationCtx, type RelayMutationCtx } from "./db";
+import { requireSubject } from "./policy";
 
 export type RelayAuthPaths = Readonly<{ internal: string }>;
 
@@ -571,16 +572,8 @@ export function relayAuthQueries() {
     currentSubject: query({
       args: {},
       handler: async (ctx) => {
-        const relay = relayCtx(ctx);
-        const identity = await relay.auth.getUserIdentity();
-        if (identity === null) return null;
-        const subjects = await relay.db
-          .query<AuthSubjectRow>("relaySubjects")
-          .withIndex("by_user", (q) => q.eq("userId", identity.subject as RowId))
-          .take(2);
-        const subject = subjects[0];
-        if (subject === undefined) return null;
-        return { authEpoch: subject.authEpoch, status: subject.status, verifiedAt: subject.verifiedAt ?? null };
+        const { subject, userId } = await requireSubject(relayCtx(ctx));
+        return { userId, authEpoch: subject.authEpoch, status: subject.status, verifiedAt: subject.verifiedAt ?? null };
       },
     }),
   };
