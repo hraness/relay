@@ -4,12 +4,14 @@ import type { GenericId } from "convex/values";
 import { convexTest } from "convex-test";
 
 import {
+  buildOtpEmail,
   digestAuthEmail,
   digestAuthOtp,
   digestInviteCapability,
   generateOtp,
   parseAuthCredentials,
 } from "../backend/auth";
+import { checkRelayConfig, type RelayConfig } from "../wire/bounds";
 
 import { relayWorld } from "./fixture";
 import schema from "./schema";
@@ -201,5 +203,138 @@ describe("otp internals", () => {
       await world.t.mutation(reserveEmailAttempt, { emailDigest: digest, kind: "send" });
     }
     await expect(world.t.mutation(reserveEmailAttempt, { emailDigest: digest, kind: "send" })).rejects.toThrow();
+  });
+});
+
+describe("otp email", () => {
+  const resendSignIn = makeFunctionReference<"action", Record<string, unknown>, { tokens: unknown }>("auth:signIn");
+  const devConfig: RelayConfig = {
+    authProviderId: "relay-dev-otp-v1",
+    commandKinds: ["task_dispatch"],
+    deviceClasses: ["daemon", "controller"],
+    email: { mode: "log" },
+    executorClass: "daemon",
+    namespace: "relay.dev.v1",
+    openSignup: true,
+    productName: "Relay Dev",
+  };
+
+  const challengeStates = async (t: Awaited<ReturnType<typeof relayWorld>>["t"], email: string) => {
+    const digest = await emailDigest(email);
+    const rows = await t.run(async (ctx) =>
+      await ctx.db
+        .query("relayOtpChallenges")
+        .withIndex("by_email", (q) => q.eq("emailDigest", digest))
+        .collect());
+    return rows.map((row) => row.deliveryState);
+  };
+
+  const stubFetch = (responder: (request: { body: Record<string, unknown>; headers: Record<string, string>; url: string }) => Response) => {
+    const requests: Array<{ body: Record<string, unknown>; headers: Record<string, string>; url: string }> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        body: JSON.parse(String(init?.body)),
+        headers: init?.headers as Record<string, string>,
+        url: String(input),
+      });
+      return responder(requests[requests.length - 1]!);
+    }) as typeof fetch;
+    return { requests, restore: () => { globalThis.fetch = realFetch; } };
+  };
+
+  test("buildOtpEmail matches the Accounts sign-in format", () => {
+    const email = buildOtpEmail("Relay Dev", { code: "12345678" });
+    expect(email.subject).toBe("12345678 is your Relay Dev sign-in code");
+    expect(email.text).toBe(
+      "Your Relay Dev sign-in code is 12345678.\n\nIt expires in 10 minutes. If you did not request it, you can ignore this email.",
+    );
+  });
+
+  test("the product name cannot inject into the subject", () => {
+    for (const productName of ["xcb", "Relay Dev", "Hraness Accounts", "A&B (Co.)", "O'Brien"]) {
+      expect(() => checkRelayConfig({ ...devConfig, productName })).not.toThrow();
+    }
+    for (const productName of ["", " lead", "trail ", "dot.", "a\nb", "a\rb", "<tag>", '"quoted"', "a:b", "x".repeat(65)]) {
+      expect(() => checkRelayConfig({ ...devConfig, productName })).toThrow("invalid productName");
+    }
+  });
+
+  test("a resend acceptance emails the branded code and records accepted", async () => {
+    const t = convexTest(schema, modules);
+    process.env.RELAY_TEST_RESEND_KEY = "test-resend-key";
+    process.env.RELAY_TEST_RESEND_FROM = "Relay Dev <dev@example.test>";
+    const stub = stubFetch(() => new Response("{}", { status: 200 }));
+    try {
+      const result = await t.action(resendSignIn, {
+        params: { email: "ok@example.test", flow: "request_code" },
+        provider: "relay-dev-otp-v1",
+      });
+      expect(result).toEqual({ tokens: null });
+      expect(stub.requests).toHaveLength(1);
+      const request = stub.requests[0]!;
+      expect(request.url).toBe("https://api.resend.com/emails");
+      expect(request.headers.Authorization).toBe("Bearer test-resend-key");
+      expect(request.headers["Idempotency-Key"]).toMatch(/^[0-9a-f]{64}$/);
+      expect(request.body.from).toBe("Relay Dev <dev@example.test>");
+      expect(request.body.to).toEqual(["ok@example.test"]);
+      expect(request.body.subject).toMatch(/^[0-9]{8} is your Relay Dev sign-in code$/);
+      const code = String(request.body.subject).split(" ")[0];
+      expect(request.body.text).toBe(
+        `Your Relay Dev sign-in code is ${code}.\n\nIt expires in 10 minutes. If you did not request it, you can ignore this email.`,
+      );
+      expect(await challengeStates(t, "ok@example.test")).toEqual(["accepted"]);
+    } finally {
+      stub.restore();
+      delete process.env.RELAY_TEST_RESEND_KEY;
+      delete process.env.RELAY_TEST_RESEND_FROM;
+    }
+  });
+
+  test("a resend rejection marks the challenge ambiguous and surfaces", async () => {
+    const t = convexTest(schema, modules);
+    process.env.RELAY_TEST_RESEND_KEY = "test-resend-key";
+    process.env.RELAY_TEST_RESEND_FROM = "Relay Dev <dev@example.test>";
+    const stub = stubFetch(() => new Response("{}", { status: 403 }));
+    try {
+      await expect(t.action(resendSignIn, {
+        params: { email: "fail@example.test", flow: "request_code" },
+        provider: "relay-dev-otp-v1",
+      })).rejects.toThrow("Email delivery is unavailable.");
+      expect(await challengeStates(t, "fail@example.test")).toEqual(["ambiguous"]);
+    } finally {
+      stub.restore();
+      delete process.env.RELAY_TEST_RESEND_KEY;
+      delete process.env.RELAY_TEST_RESEND_FROM;
+    }
+  });
+
+  test("missing resend env is a delivery failure, not a silent pass", async () => {
+    const t = convexTest(schema, modules);
+    const stub = stubFetch(() => new Response("{}", { status: 200 }));
+    try {
+      await expect(t.action(resendSignIn, {
+        params: { email: "noenv@example.test", flow: "request_code" },
+        provider: "relay-dev-otp-v1",
+      })).rejects.toThrow("Email delivery is unavailable.");
+      expect(stub.requests).toHaveLength(0);
+      expect(await challengeStates(t, "noenv@example.test")).toEqual(["ambiguous"]);
+    } finally {
+      stub.restore();
+    }
+  });
+
+  test("unrelated auth failures stay silent", async () => {
+    const t = convexTest(schema, modules);
+    // A verify with no live challenge and malformed credentials both
+    // resolve identically — the flat refusal must not leak which
+    // invariant failed.
+    for (const params of [
+      { code: "12345678", email: "nobody@example.test", flow: "verify_code" },
+      { flow: "request_code" },
+    ]) {
+      const result = await t.action(resendSignIn, { params, provider: "relay-dev-otp-v1" });
+      expect(result).toEqual({ tokens: null });
+    }
   });
 });

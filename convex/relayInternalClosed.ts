@@ -15,6 +15,7 @@ const closed = defineRelay({
   openSignup: false,
   bootstrapInviteEnv: "RELAY_TEST_BOOTSTRAP_TOKEN",
   authProviderId: "relay-dev-otp-v1",
+  productName: "Relay Dev",
 });
 
 export const reserveEmailAttempt = closed.internal.reserveEmailAttempt;

@@ -19,4 +19,5 @@ export const relay = defineRelay({
   email: { mode: "log" },
   openSignup: true,
   authProviderId: "relay-dev-otp-v1",
+  productName: "Relay Dev",
 });
