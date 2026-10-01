@@ -4,9 +4,10 @@ Shared Convex relay foundation for Hraness products: verified-email device
 enrollment, a fenced device-command lifecycle, and end-to-end encrypted
 projections between machines.
 
-relay stores ciphertext envelopes and opaque metadata: device ids, revisions,
-command states, and bounded timestamps. It never sees plaintext session
-content, credentials, or workspace bodies.
+relay stores encrypted payloads with device IDs, revisions, command states,
+and bounded timestamps. Products encrypt session content and workspace bodies
+before sending them to the relay. Authentication handles email addresses and
+one-time sign-in codes separately.
 
 ## Layout
 
@@ -26,7 +27,9 @@ other-language clients (Rust) implement `wire/` directly.
 
 ## Instantiating a product relay
 
-A product deployment is a thin `convex/` directory over `defineRelay`:
+A product deployment is a thin `convex/` directory over `defineRelay`. This
+example uses local log delivery, which prints sign-in codes to the backend
+log. Production deployments use the `webhook` or `resend` email transport:
 
 ```ts
 // convex/relay.ts
@@ -71,7 +74,3 @@ bun run convex:dev       # live-push the dev instantiation locally
 
 Local development only ever targets the anonymous deployment chosen by
 `scripts/convex-local.ts`; deploy credentials are scrubbed before launch.
-
-## Status
-
-Foundation. xcb is the first consumer; hra and alt can adopt it later.
