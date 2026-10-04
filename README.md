@@ -9,6 +9,19 @@ and bounded timestamps. Products encrypt session content and workspace bodies
 before sending them to the relay. Authentication handles email addresses and
 one-time sign-in codes separately.
 
+## Choose a package entry point
+
+The package exports TypeScript source and has no root import. Use the subpath for your task:
+
+| Import | Task |
+| --- | --- |
+| `@hraness/relay/backend` | Instantiate a product's Convex functions with `defineRelay`. |
+| `@hraness/relay/wire` | Validate the versioned messages shared by clients and backend. |
+| `@hraness/relay/crypto` | Encrypt and sign payloads using the shared envelope scheme. |
+| `@hraness/relay/client` | Connect a TypeScript client to the relay. |
+
+Your toolchain must handle TypeScript source. The backend uses Convex with a peer range of `>=1.44.0`; the repository tests against its pinned Convex version. Start with [the reference instantiation](#instantiating-a-product-relay), and use [device reauthentication](docs/device-reauth.md) when an active device needs a new session without replacing its keys.
+
 ## Layout
 
 - `backend/`: backend factories for auth subjects and OTP challenges, the
