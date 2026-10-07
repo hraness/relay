@@ -32,6 +32,6 @@
     "@types/bun": "^1.2.0",
     "convex": "1.45.0",
     "convex-test": "0.0.59",
-    "typescript": "^5.6.0"
+    "typescript": "7.0.2"
   }
 }
